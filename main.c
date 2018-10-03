@@ -14,6 +14,12 @@
 #define TIME_TO_WAIT 1
 #define ICON_FA_VOLUME_UP u8"\uf028"
 #define MAX_BLOCK_NUMBER 256
+static char BAR_BG[] = "\"#1b1b1b\"";
+static char BAR_FG[] = "\"#616161\"";
+static char BAR_U[] = "\"#665c54\"";
+static char BAR_FONT[] = "Fira Mono:pixelsize=10";
+static char BAR_GEOM[] = "x30+0+0";
+static int U_PIX = 5;
 static  char FOCUSED_DESKTOP_FG[] = "#9e9e9e";
 static  char FOCUSED_DESKTOP_BG[] = "#303030";
 static  char FOCUSED_DESKTOP_UNDERLINE[] = "#665c54";
@@ -99,6 +105,10 @@ int get_desktop_and_task_blocks(char str[], size_t str_len){
 				title_size = strlen(token);
 				task_token = (char*)malloc(title_size+1);
 				memcpy(task_token, token, title_size + 1);
+				if (task_block != NULL) free_block_param_t(task_block);
+				task_block = create_block_param_t(NULL, task_token, COLOR_FG_BG, TASK_COLORS, NO_CLICK, COMMANDS, 0, UNDERLINE, CENTER_ALIGN, TASK_PADDING, i);
+				free(task_token);
+	
 			}
 		}else{
 			if (*token == 'F' || *token == 'O')
@@ -106,13 +116,6 @@ int get_desktop_and_task_blocks(char str[], size_t str_len){
 		}
 	 	token = strtok(NULL, "\n");
 	}
-	if (task_block != NULL) free_block_param_t(task_block);
-	if (task_token != NULL){
-		task_block = create_block_param_t(NULL, task_token, COLOR_FG_BG, TASK_COLORS, NO_CLICK, COMMANDS, 0, UNDERLINE, CENTER_ALIGN, TASK_PADDING, i);
-		free(task_token);
-	}
-	else
-		task_block = create_block_param_t(NULL, "EMPTY", COLOR_FG_BG, TASK_COLORS, NO_CLICK, COMMANDS, 0, UNDERLINE, CENTER_ALIGN, TASK_PADDING, i);
 	
 	for (i = 0; i < number_of_desktops; i++){
 		if (desktop_blocks[i] != NULL) free_block_param_t(desktop_blocks[i]);
@@ -132,7 +135,7 @@ int get_desktop_and_task_blocks(char str[], size_t str_len){
 		//occupied
 			desktop_token = strchr(desktop_token + 2, ':');
 			desktop_token++;
-			desktop_blocks[i] = create_block_param_t(NULL, desktop_token, COLOR_FG_BG, DESKTOP_OCCUPIED_COLORS, NO_CLICK, COMMANDS, 0, UNDERLINE, LEFT_ALIGN, DESKTOP_PADDING, i+1);
+			desktop_blocks[i] = create_block_param_t(NULL, desktop_token, COLOR_FG_BG, DESKTOP_OCCUPIED_COLORS, NO_CLICK, COMMANDS, 0, NO_ATTR, LEFT_ALIGN, DESKTOP_PADDING, i+1);
 		}
 		free(desktop_tokens[i]);
 	}
@@ -240,7 +243,15 @@ int main( int argc, char *argv[] )
 	signal(SIGINT, handle_signal);
 	signal(SIGHUP, handle_signal);
 	run  = 1;
-	lemonbar_fd = popen("lemonbar", "w");
+	char lemonbar_command[256] = {0};
+	sprintf(lemonbar_command, "lemonbar -g %s -B %s -F %s -U %s -u %d -f %s", BAR_GEOM, BAR_BG, BAR_FG, BAR_U, U_PIX, BAR_FONT);
+	lemonbar_fd = popen(lemonbar_command, "w");
+	/*static char BAR_BG[] = "#1b1b1b";
+static char BAR_FG[] = "#616161";
+static char BAR_U[] = "#665c54";
+static char BAR_FONT[] = "Fira Mono:pixelsize=12";
+static char BAR_GEOM[] = "x30+0+0";
+static int U_PIX = 5;*/
 	while (run){
 
 		FD_ZERO(&descriptors);
@@ -259,6 +270,11 @@ int main( int argc, char *argv[] )
 				else
 				printf("Pipe closed\n");*/
 				if ((buff = read_fd(d)) != NULL){
+					for (int i = 0; i < number_of_desktops; i++){
+						free_block_param_t(desktop_blocks[i]);
+						desktop_blocks[i] = NULL;
+					}
+					number_of_desktops = 0;
 					get_desktop_and_task_blocks(buff, strlen(buff));
 					get_clock_block();
 					for (int i = 0; i < number_of_desktops; i++){
