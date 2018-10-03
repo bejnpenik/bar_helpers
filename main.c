@@ -1,9 +1,10 @@
-#include <stdlib.h>
 #include <stdio.h>
-#include <fcntl.h>  
+#include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
+#include <fcntl.h>
+#include <errno.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <signal.h>
 #include <time.h>
 #include "bar_helpers.h"
@@ -12,6 +13,7 @@
 #define MIN(A, B)         ((A) > (B) ? (B) : (A))
 #define TIME_TO_WAIT 1
 #define ICON_FA_VOLUME_UP u8"\uf028"
+#define MAX_BLOCK_NUMBER 256
 static  char FOCUSED_DESKTOP_FG[] = "#9e9e9e";
 static  char FOCUSED_DESKTOP_BG[] = "#303030";
 static  char FOCUSED_DESKTOP_UNDERLINE[] = "#665c54";
@@ -38,6 +40,8 @@ static block_param_t *volume_block = NULL;
 static block_param_t *battery_block = NULL;
 static block_param_t *brightness_block = NULL;
 static block_param_t *wifi_block = NULL;
+static block_param_t *blocks[MAX_BLOCK_NUMBER];
+static block_container_t container;
 static int number_of_desktops = 0;
 static int number_of_blocks = 0;
 
@@ -45,18 +49,6 @@ static int number_of_blocks = 0;
 static char *COMMANDS[] = {NULL, NULL, NULL, NULL, NULL};
 
 static int run = 0;
-
-/*block_param_t *create_block_param_t(block_param_t *dest, 
-									char *text,//display text
-									color_t colors,//which colors are in char array
-									char **color_codes,//codes for used colors
-									click_t clicks,//which clicks
-									char **commands,//what commands are for needed clicks
-									unsigned int font_index,//special font for block text
-									attr_flag_t attr, //block flags
-									attr_align_t aligment,//block aligment
-									int padding,
-									int position)//position of block in aligment)*/
 int get_clock_block(void){
 
 	time_t rawtime;
@@ -71,38 +63,6 @@ int get_clock_block(void){
 	if (clock_block != NULL) free_block_param_t(clock_block);
 	clock_block =  create_block_param_t(NULL, buffer, COLOR_FG_BG, CLOCK_COLORS, NO_CLICK, COMMANDS, 0, UNDERLINE, LEFT_ALIGN, CLOCK_PADDING, 0);
 	
-}
-
-int get_battery_block(char *str, size_t size){
-	char volume_str[1024] = {0};
-	*volume_str = '\0';
-	strcat(volume_str, "BAT: ");
-	for (int i=0; i<size; i++){
-		if (str[i]!='\n') volume_str[i+4] = str[i];
-	}
-	//sprintf(volume_str, "VOL: %s", str);
-	if (battery_block != NULL) free_block_param_t(battery_block);
-	battery_block =  create_block_param_t(NULL, volume_str, COLOR_FG_BG, CLOCK_COLORS, NO_CLICK, COMMANDS, 0, UNDERLINE, RIGHT_ALIGN, CLOCK_PADDING, 1);
-}
-int get_brightness_block(char *str, size_t size){
-	char volume_str[1024] = {0};
-	*volume_str = '\0';
-	strcat(volume_str, "LUM: ");
-	for (int i=0; i<size; i++){
-		if (str[i]!='\n') volume_str[i+4] = str[i];
-	}
-	//sprintf(volume_str, "VOL: %s", str);
-	if (brightness_block != NULL) free_block_param_t(brightness_block);
-	brightness_block =  create_block_param_t(NULL, volume_str, COLOR_FG_BG, CLOCK_COLORS, NO_CLICK, COMMANDS, 0, UNDERLINE, RIGHT_ALIGN, CLOCK_PADDING, 2);
-}
-int get_wifi_block(char *str, size_t size){
-	char volume_str[1024] = {0};
-	*volume_str = '\0';
-	for (int i=0; i<size; i++){
-		if (str[i]!='\n') volume_str[i] = str[i];
-	}
-	if (wifi_block != NULL) free_block_param_t(wifi_block);
-	wifi_block =  create_block_param_t(NULL, volume_str, COLOR_FG_BG, CLOCK_COLORS, NO_CLICK, COMMANDS, 0, UNDERLINE, RIGHT_ALIGN, CLOCK_PADDING, 0);
 }
 int get_volume_block(char *str, size_t size){
 
@@ -119,21 +79,7 @@ int get_volume_block(char *str, size_t size){
 	if (volume_block != NULL) free_block_param_t(volume_block);
 	volume_block =  create_block_param_t(NULL, volume_str, COLOR_FG_BG, CLOCK_COLORS, NO_CLICK, COMMANDS, 0, UNDERLINE, RIGHT_ALIGN, CLOCK_PADDING, 2);
 }
-int get_external_blocks(char*str, size_t size){
-	char *token = strtok(str, ";");
-	while(token != NULL){
-		//printf("token : %s\n", token);
-		if (*token == 'V')
-			get_volume_block(token+1, strlen(token));
-		if (*token == 'B')
-			get_battery_block(token+1, strlen(token));
-		if (*token == 'L')
-			get_brightness_block(token+1, strlen(token));
-		if (*token == 'W')
-			get_wifi_block(token+1, strlen(token));
-		token = strtok(NULL, ";");
-	}
-}									
+
 int get_desktop_and_task_blocks(char str[], size_t str_len){
 	
 	char *token = strtok(str, "\n");
@@ -161,11 +107,13 @@ int get_desktop_and_task_blocks(char str[], size_t str_len){
 	 	token = strtok(NULL, "\n");
 	}
 	if (task_block != NULL) free_block_param_t(task_block);
-	if (task_token != NULL)
+	if (task_token != NULL){
 		task_block = create_block_param_t(NULL, task_token, COLOR_FG_BG, TASK_COLORS, NO_CLICK, COMMANDS, 0, UNDERLINE, CENTER_ALIGN, TASK_PADDING, i);
+		free(task_token);
+	}
 	else
 		task_block = create_block_param_t(NULL, "EMPTY", COLOR_FG_BG, TASK_COLORS, NO_CLICK, COMMANDS, 0, UNDERLINE, CENTER_ALIGN, TASK_PADDING, i);
-	free(task_token);
+	
 	for (i = 0; i < number_of_desktops; i++){
 		if (desktop_blocks[i] != NULL) free_block_param_t(desktop_blocks[i]);
 	}
@@ -191,169 +139,214 @@ int get_desktop_and_task_blocks(char str[], size_t str_len){
 	number_of_desktops = tmp_number_of_desktops;
 	
 }
+char *read_fd(int fd){
+	size_t size = 0;
+	size_t read_size = 0;
+	char tmp_buff[1024] = {0};
+	char *tmp_str = NULL;
+	char *str = NULL;
+	read_size = read(fd, tmp_buff, 1023);
+	while (run){
+		//printf("%d %d %d\n", read_size, errno, EAGAIN);
+		if (read_size == -1 && errno == EAGAIN){
+			return str;
+		}
+		else{
+			//printf("%d %d %d\n", read_size, errno, EAGAIN);
+			size += read_size;
+			if (read_size == 1023){
+				tmp_buff[read_size++] = '\0';
+				size++;
+				if (str == NULL){
+					str = (char*)malloc((read_size)*sizeof(char));
+					if (str == NULL){
+						return NULL;
+					}
+					memcpy(str, tmp_buff, read_size);
+				}
+				else{//size-read_size -> 
+					tmp_str = (char*)malloc((--size-read_size)*sizeof(char));
+					memcpy(tmp_str, str, size-read_size);
+					free(str);
+					str = (char*)malloc(size*sizeof(char));
+					if (str == NULL){
+						free(tmp_str);
+						return NULL;
+					}
+					memcpy(str, tmp_str, size - read_size);
+					memcpy(str + size - read_size - 1, tmp_buff, read_size);
+					free(tmp_str);
+				}
+			}else{
+				if (tmp_buff[read_size-1] == '\n') tmp_buff[read_size-1] = '\0';
+				else tmp_buff[read_size++] = '\0';
+				if (str == NULL){
+					str = (char*)malloc(read_size*sizeof(char));
+					if (str == NULL){
+						return NULL;
+					}
+					memcpy(str, tmp_buff, read_size);
+				}
+				else{
+					tmp_str = (char*)malloc((--size-read_size)*sizeof(char));
+					memcpy(tmp_str, str, size-read_size);
+					free(str);
+					str = (char*)malloc(size*sizeof(char));
+					if (str == NULL){
+						free(tmp_str);
+						return NULL;
+					}
+					memcpy(str, tmp_str, size - read_size);
+					memcpy(str + size - read_size - 1, tmp_buff, read_size);
+					free(tmp_str);
+				}
+			}
+			read_size = read(fd, tmp_buff, 1024);	
+		}
+		read_size = read(fd, tmp_buff, 1023);
+	}
+	return str;
+}
 void handle_signal(int sig)
 {
     if (sig == SIGTERM || sig == SIGINT || sig == SIGHUP)
         run = 0;
 		
 }
+int main( int argc, char *argv[] )
+{
 
-int main(int argc, char *argv[]){
-	char tmp[1024];
-	char **tmp_arr =  (char**)malloc(256*sizeof(char*));
-	char *complete = NULL;
-	char fifo_name1[] = "/tmp/bumbar_fifo";
-	char fifo_name2[] = "/tmp/bar_internal_fifo";
-	int s2c= open(fifo_name1, O_RDWR | O_NONBLOCK);
-	int s3c= open(fifo_name2, O_RDWR | O_NONBLOCK);
-	int i, j;
-	size_t size = 0;
-	char *token_start;
-	char *token_end;
-	char *token;
-	int over = 0;
-	char **block_arr = NULL;
-	int read_size = 0;
-	char *desktop[4];
-	char **clients = NULL;
-	block_param_t **blocks;
-	block_container_t *container = NULL;
+	FILE *fp, *fstatus, *lemonbar_fd;
+	char *buff = NULL;
 	char *bar = NULL;
-	int sel_fd = MAX(s2c, s3c) + 1;
+	/* Open the command for reading. */
+	fp = popen("bumbar -c", "r");
+	fstatus = popen("/home/branislav/bar_helpers/status.sh", "r");
+	int d = fileno(fp);
+	int s = fileno(fstatus);
+	fcntl(d, F_SETFL, O_RDWR | O_NONBLOCK);
+	fcntl(s, F_SETFL, O_RDWR | O_NONBLOCK);
+	if (fp == NULL) {
+		printf("Failed to run command\n" );
+		exit(1);
+	}
+	if (fstatus == NULL) {
+		printf("Failed to run command\n" );
+		exit(1);
+	}
+	int sel_fd = MAX(d, s) + 1;
 	fd_set descriptors;
 	signal(SIGTERM, handle_signal);
 	signal(SIGINT, handle_signal);
 	signal(SIGHUP, handle_signal);
-	run = 1;
-	while (run)
-	{
+	run  = 1;
+	lemonbar_fd = popen("lemonbar", "w");
+	while (run){
+
 		FD_ZERO(&descriptors);
-		FD_SET(s2c, &descriptors);
-		FD_SET(s3c, &descriptors);
+		FD_SET(d, &descriptors);
+		FD_SET(s, &descriptors);
 		if (select(sel_fd, &descriptors, NULL, NULL, NULL)) {
-			if (FD_ISSET(s2c, &descriptors)){
-				i=0;
-				memset(tmp,0, 1024);
-				*tmp = '\0';
-				while (read(s2c, &tmp, 1024*sizeof(char)) > 0)
-				{	
-			
-					
-					read_size = strlen(tmp) + 1;
-					tmp_arr[i] = strdup(tmp);
-					if (i==0) size = 0;
-					size += read_size;
-					i++;
-					memset(tmp,0, 1024);
-					*tmp = '\0';
+			if (FD_ISSET(d, &descriptors)){
+				/*memset(buff, 0, 1035);
+				ssize_t r = read(d, buff, 1034);
+				if (r == -1 && errno == EAGAIN)
+				//printf("No data yet\n");
+				continue;
+				else if (r > 0){
+				buff[r-1] = '\0';
+				printf("Chunksize %d : %s", r,buff);}
+				else
+				printf("Pipe closed\n");*/
+				if ((buff = read_fd(d)) != NULL){
+					get_desktop_and_task_blocks(buff, strlen(buff));
+					get_clock_block();
+					for (int i = 0; i < number_of_desktops; i++){
+						blocks[i] = desktop_blocks[i];
+					}
+					number_of_blocks = number_of_desktops;
+					if (task_block != NULL)
+						blocks[number_of_blocks++] = task_block;
+					if (clock_block != NULL)
+						blocks[number_of_blocks++] = clock_block;
+					if (volume_block != NULL)
+						blocks[number_of_blocks++] = volume_block;
+					if (battery_block != NULL)
+						blocks[number_of_blocks++] = battery_block;
+					if (brightness_block != NULL)
+						blocks[number_of_blocks++] = brightness_block;
+					if (wifi_block != NULL)
+						blocks[number_of_blocks++] = wifi_block;
+					create_block_container(&container, blocks, number_of_blocks, 0,0,0,0,1);
+					bar = render_bar(NULL, &container);
+					//printf("%s", bar);
+					//fflush(stdout);
+					fprintf(lemonbar_fd ,"%s", bar);
+					fflush(lemonbar_fd);
+					free(bar);
+					free(buff);
 				}
-				complete = (char*)malloc(size*sizeof(char));
-				memset(complete, 0, size*sizeof(char));
-				*complete = '\0'; 
-				for (int j=0; j < i; j++){
-					//size += strlen(tmp_arr[j])
-					//printf("%s", tmp_arr[j]);
-					strcat(complete, tmp_arr[j]);
-					free(tmp_arr[j]);
-				}
-				//printf("%s\n\n", complete);
-				get_desktop_and_task_blocks(complete, size);
-				get_clock_block();
-				blocks = (block_param_t **)malloc((number_of_desktops+6)*sizeof(block_param_t *));
-				for (i = 0; i < number_of_desktops; i++){
-					blocks[i] = desktop_blocks[i];
-				}
-				number_of_blocks = number_of_desktops;
-				blocks[number_of_blocks++] = task_block;
-				blocks[number_of_blocks++] = clock_block;
-				if (volume_block != NULL)
-					blocks[number_of_blocks++] = volume_block;
-				if (battery_block != NULL)
-					blocks[number_of_blocks++] = battery_block;
-				if (brightness_block != NULL)
-					blocks[number_of_blocks++] = brightness_block;
-				if (wifi_block != NULL)
-					blocks[number_of_blocks++] = wifi_block;
-				container = create_block_container(NULL, blocks, number_of_blocks, 0,0,0,0,1);
-				bar = render_bar(NULL, container);
-				printf("%{+u}%s", bar);
-				fflush(stdout);
-				free(bar);
-				free(container);
-				free(complete);
-				free(blocks);
-			}
-			if (FD_ISSET(s3c, &descriptors)){
-				i=0;
-				memset(tmp,0, 1024);
-				*tmp = '\0';
-				while (read(s3c, &tmp, 1024*sizeof(char)) > 0)
-				{	
-			
-					//printf("%c", buf);
-					printf("%s", tmp);
-					read_size = strlen(tmp) + 1;
-					tmp_arr[i] = strdup(tmp);
-					if (i==0) size = 0;
-					size += read_size;
-					i++;
-					memset(tmp,0, 1024);
-					*tmp = '\0';
-				}
-				complete = (char*)malloc(size*sizeof(char));
-				memset(complete, 0, size*sizeof(char));
-				*complete = '\0'; 
-				for (int j=0; j < i; j++){
-					//size += strlen(tmp_arr[j])
-					//printf("%s", tmp_arr[j]);
-					strcat(complete, tmp_arr[j]);
-					free(tmp_arr[j]);
-				}
-				get_clock_block();
-				//get_volume_block(complete, size);
-				//get_battery_block(complete, size);
-				//get_brightness_block(complete, size);
-				get_external_blocks(complete, size);
-				blocks = (block_param_t **)malloc((number_of_desktops+6)*sizeof(block_param_t *));
-				for (i = 0; i < number_of_desktops; i++){
-					blocks[i] = desktop_blocks[i];
-				}
-				number_of_blocks = number_of_desktops;
-				blocks[number_of_blocks++] = clock_block;
-				if (task_block != NULL)
-					blocks[number_of_blocks++] = task_block;
-				if (volume_block != NULL)
-					blocks[number_of_blocks++] = volume_block;
-				if (battery_block != NULL)
-					blocks[number_of_blocks++] = battery_block;
-				if (brightness_block != NULL)
-					blocks[number_of_blocks++] = brightness_block;
-				if (wifi_block != NULL)
-					blocks[number_of_blocks++] = wifi_block;
-				container = create_block_container(NULL, blocks, number_of_blocks, 0,0,0,0,1);
-				bar = render_bar(NULL, container);
-				printf("%{+u}%s", bar);
-				fflush(stdout);
-				free(bar);
-				free(container);
-				free(complete);
-				free(blocks);
+				
 				
 			}
+			if (FD_ISSET(s, &descriptors)){
+				/*memset(buff, 0, 1035);
+				ssize_t r = read(s, buff, 1034);
+				if (r == -1 && errno == EAGAIN)
+				//printf("No data yet\n");
+				continue;
+				else if (r > 0){
+				buff[r-1] = '\0';
+				printf("Chunksize %d : %s\n", r,buff);}
+				else
+				printf("Pipe closed\n");*/
+				if ((buff = read_fd(s)) != NULL){
+					get_volume_block(buff, strlen(buff));
+					for (int i = 0; i < number_of_desktops; i++){
+						blocks[i] = desktop_blocks[i];
+					}
+					number_of_blocks = number_of_desktops;
+					if (task_block != NULL)
+						blocks[number_of_blocks++] = task_block;
+					if (clock_block != NULL)
+						blocks[number_of_blocks++] = clock_block;
+					if (volume_block != NULL)
+						blocks[number_of_blocks++] = volume_block;
+					if (battery_block != NULL)
+						blocks[number_of_blocks++] = battery_block;
+					if (brightness_block != NULL)
+						blocks[number_of_blocks++] = brightness_block;
+					if (wifi_block != NULL)
+						blocks[number_of_blocks++] = wifi_block;
+					create_block_container(&container, blocks, number_of_blocks, 0,0,0,0,1);
+					bar = render_bar(NULL, &container);
+					//printf("%s", bar);
+					//fflush(stdout);
+					fprintf(lemonbar_fd ,"%s", bar);
+					fflush(lemonbar_fd);
+					free(bar);
+					free(buff);
+				}
+			}
 		}
-		
 	}
-	for (i=0; i<number_of_desktops;i++){
+	/* close */
+	printf("TERMINATING \n");
+	for (int i=0; i<number_of_desktops;i++){
 		free_block_param_t(desktop_blocks[i]);
 	}
 	free(desktop_blocks);
-	free_block_param_t(task_block);
-	free_block_param_t(clock_block);
-	free_block_param_t(volume_block);
-	free_block_param_t(battery_block);
-	free_block_param_t(brightness_block);
-	close(s2c);
-	free(tmp_arr);
-	printf("client exit successfully");
-    return EXIT_SUCCESS;
+	if (task_block)
+		free_block_param_t(task_block);
+	if (clock_block)
+		free_block_param_t(clock_block);
+	if (volume_block)
+		free_block_param_t(volume_block);
+	if (battery_block)
+		free_block_param_t(battery_block);
+	if (brightness_block)
+		free_block_param_t(brightness_block);
+	pclose(fp); pclose(fstatus);pclose(lemonbar_fd);
+
+	return 0;
 }
