@@ -254,16 +254,16 @@ static char *add_font_attr(char *dest, int nbr, char *text){
 	return dest;
 }
 block_param_t *create_block_param_t(block_param_t *dest, 
-									char *text,//display text
-									color_t colors,//which colors are in char array
-									char **color_codes,//codes for used colors
-									click_t clicks,//which clicks
-									char **commands,//what commands are for needed clicks
-									unsigned int font_index,//special font for block text
-									attr_flag_t attr, //block flags
-									attr_align_t aligment,//block aligment
-									int padding,
-									int position)//position of block in aligment)
+				char *text,//display text
+				color_t colors,//which colors are in char array
+				char **color_codes,//codes for used colors
+				click_t clicks,//which clicks
+				char **commands,//what commands are for needed clicks
+				unsigned int font_index,//special font for block text
+				attr_flag_t attr, //block flags
+				attr_align_t aligment,//block aligment
+				int padding,
+				int position)//position of block in aligment)
 {
 	block_param_t *dest_tmp = (block_param_t *)malloc(sizeof(block_param_t));
 	int text_len = strlen(text);
@@ -318,6 +318,55 @@ block_param_t *create_block_param_t(block_param_t *dest,
 	memcpy(dest, dest_tmp, sizeof(block_param_t));
 	free(dest_tmp);
 	return dest;
+}
+void update_block_text(block_param_t * block, char *ntext){
+	int size; 
+	if (block->text != NULL) free(block->text);
+	size = strlen(ntext)+1;
+	block->text = (char*)malloc(size*sizeof(char));
+	memcpy(block->text, ntext, size);
+}
+void update_block_colors(block_param_t * block, char **color_codes, color_t colors){
+	int i;
+	if (block->color_codes != NULL){
+		for (i = 0; i < 3; i++){
+			if (block->color_codes[i] != NULL) free(block->color_codes[i]);
+		}
+		free(block->color_codes);
+	}
+	block->colors = colors;
+	block->color_codes = (char**)malloc(3*sizeof(char*));
+	for (i = 0; i < 3; i++ ){
+		if (color_codes[i] != NULL) block->color_codes[i] = strdup(color_codes[i]);
+		else block->color_codes[i] = NULL;
+	}
+}
+void update_block_commands(block_param_t *block, char **commands, click_t clicks){
+	int i;
+	if (block->commands != NULL){
+		for (i = 0; i < 5; i++){
+			if (block->commands[i] != NULL) free(block->commands[i]);
+		}
+		free(block->commands);
+	}
+	block->clicks = clicks;
+	block->commands = (char**)malloc(5*sizeof(char*));
+	for (i = 0; i < 5; i++ ){
+		if (commands[i] != NULL) block->commands[i] = strdup(commands[i]);
+		else block->commands[i] = NULL;
+	}
+}
+void update_block_alignment(block_param_t *block, attr_align_t alignment){
+	block->aligment = alignment;	
+}
+void update_block_attr(block_param_t *block, attr_flag_t attr){
+	block -> attr = attr;
+}
+void update_block_padding(block_param_t *block, int padding){
+	block->padding = padding;
+}
+void update_block_position(block_param_t *block, int position){
+	block->position = position;
 }
 void free_block_param_t(block_param_t *block){
 	free(block->text);
@@ -406,21 +455,46 @@ static char *create_aligned_block(char *dest, attr_align_t alignment, int left_o
 	//left_offset is before block text
 	//right_offset is after block
 	int align_attr_len = 4;//strlen("%{u}")
+	int offset_max_size = 8;//%{Oxxxx}
+	char offset_left_str[10] = {0};
+	char offset_right_str[10] = {0};
 	int block_len = strlen(text) + align_attr_len;
+	if (left_offset && right_offset){
+		sprintf(offset_left_str, "%%{O%d}", left_offset);
+		sprintf(offset_right_str, "%%{O%d}", right_offset);
+		block_len+=strlen(offset_left_str);
+		block_len+=strlen(offset_right_str);	
+	}else
+	if (left_offset && !right_offset){
+		sprintf(offset_left_str, "%%{O%d}", left_offset);
+		//sprintf(offset_right_str, "%%{O%d}", right_offset);
+		block_len+=strlen(offset_left_str);
+		//block_len+*strlen(offset_right_str);	
+	}else
+	if (!left_offset && right_offset){
+		//sprintf(offset_left_str, "%%{O%d}", left_offset);
+		sprintf(offset_right_str, "%%{O%d}", right_offset);
+		//block_len+=strlen(offset_left_str);
+		block_len+=strlen(offset_right_str);	
+	} 
 	char *dest_tmp = (char *)malloc(block_len+1);
 	memset(dest_tmp, 0, block_len+1);
 	switch(alignment){
 		case LEFT_ALIGN:
 			strncat(dest_tmp, "%{l}", align_attr_len);
+			if (left_offset) strcat(dest_tmp, offset_left_str);
 			strcat(dest_tmp, text);
 			break;
 		case CENTER_ALIGN:
 			strncat(dest_tmp, "%{c}", align_attr_len);
+			if (left_offset) strcat(dest_tmp, offset_left_str);
 			strcat(dest_tmp, text);
+			if (right_offset) strcat(dest_tmp, offset_right_str);
 			break;
 		case RIGHT_ALIGN:
 			strncat(dest_tmp, "%{r}", align_attr_len);
 			strcat(dest_tmp, text);
+			if (right_offset) strcat(dest_tmp, offset_right_str);
 			break;
 	}
 	if (dest == NULL)
